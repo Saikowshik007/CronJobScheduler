@@ -44,7 +44,7 @@ class JobScraperApp:
         self.job_cache_ttl = int(os.getenv('JOB_CACHE_TTL', 604800))
         self.max_threads = int(os.getenv('MAX_THREADS', 50))
         self.user_agent = os.getenv('USER_AGENT', None)
-        self.use_selenium_default = os.getenv('USE_SELENIUM', 'false').lower() == 'true'
+        self.use_playwright_default = os.getenv('USE_PLAYWRIGHT', 'false').lower() == 'true'
 
         # Validate required configuration
         if not self.telegram_token:
@@ -81,7 +81,7 @@ class JobScraperApp:
 
             # Initialize Scraper
             logger.info("Initializing Scraper...")
-            self.scraper = JobScraper(user_agent=self.user_agent, use_selenium=self.use_selenium_default)
+            self.scraper = JobScraper(user_agent=self.user_agent, use_playwright=self.use_playwright_default)
 
             # Initialize Thread Manager
             logger.info("Initializing Thread Manager...")

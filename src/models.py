@@ -27,7 +27,7 @@ class Selectors:
     job_link: Optional[str] = None
     job_location: Optional[str] = None
     job_description: Optional[str] = None
-    use_selenium: bool = False  # Whether to use Selenium for JavaScript-rendered pages
+    use_playwright: bool = False  # Whether to use Playwright for JavaScript-rendered pages
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""

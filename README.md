@@ -5,7 +5,7 @@ An intelligent Telegram bot that monitors career pages and sends instant notific
 ## Features
 
 - **Automatic Job Detection** - Smart selector detection automatically identifies job listings on any career page
-- **JavaScript Support** - Optional Selenium integration for JavaScript-rendered pages (SPAs like Microsoft Careers, LinkedIn, etc.)
+- **JavaScript Support** - Playwright integration for JavaScript-rendered pages (SPAs like Microsoft Careers, LinkedIn, etc.)
 - **Real-time Notifications** - Get instant Telegram notifications when new jobs are posted
 - **Multi-page Monitoring** - Monitor multiple career pages simultaneously with configurable check intervals
 - **Duplicate Prevention** - Uses Redis caching to track seen jobs and prevent duplicate notifications
@@ -100,9 +100,9 @@ JOB_CACHE_TTL=604800
 MAX_THREADS=50
 USER_AGENT=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36
 
-# Use Selenium for JavaScript-rendered pages (true/false)
+# Use Playwright for JavaScript-rendered pages (true/false)
 # Enable this for sites like Microsoft Careers, LinkedIn, etc. that use SPAs
-USE_SELENIUM=false
+USE_PLAYWRIGHT=false
 
 # Logging
 LOG_LEVEL=INFO
@@ -242,7 +242,7 @@ The bot uses pattern matching and HTML structure analysis to automatically detec
 - Detects repeated HTML structures (likely job listings)
 - Scores elements based on job-related keywords
 - Extracts job title, link, location, and company information
-- Automatically uses Selenium for JavaScript-rendered pages when enabled
+- Automatically uses Playwright for JavaScript-rendered pages when needed
 
 ### 2. Multi-threaded Monitoring
 
@@ -296,15 +296,15 @@ If auto-detection fails, you can manually specify selectors by modifying the Fir
 }
 ```
 
-### JavaScript-Rendered Pages (Selenium)
+### JavaScript-Rendered Pages (Playwright)
 
-Some modern career pages use JavaScript frameworks (React, Angular, Vue) that load content dynamically. For these pages, enable Selenium support:
+Some modern career pages use JavaScript frameworks (React, Angular, Vue) that load content dynamically. For these pages, Playwright support is automatically enabled:
 
 **Global Setting (All Pages):**
 
 Set in `.env`:
 ```env
-USE_SELENIUM=true
+USE_PLAYWRIGHT=true
 ```
 
 **Per-Page Setting:**
@@ -314,7 +314,7 @@ Enable for specific pages in Firebase:
 {
   "selectors": {
     "type": "auto",
-    "use_selenium": true
+    "use_playwright": true
   }
 }
 ```
@@ -326,7 +326,13 @@ Enable for specific pages in Firebase:
 - Greenhouse.io sites
 - Other Single-Page Applications (SPAs)
 
-**Note:** Selenium requires Chrome to be installed in the container. The updated Dockerfile automatically installs Chrome when using Docker.
+**Advantages:**
+- 2-3x faster than traditional browser automation
+- Lower memory usage (~30-40% less)
+- Built-in auto-waiting (more reliable)
+- Automatic browser installation
+
+**Note:** Playwright browsers are automatically installed during Docker build.
 
 ## Troubleshooting
 
@@ -335,11 +341,11 @@ Enable for specific pages in Firebase:
 1. Test the URL: `/test https://company.com/careers`
 2. Check if the page uses dynamic loading (JavaScript):
    - If you see "No job containers detected" warnings, the page likely uses JavaScript rendering
-   - Enable Selenium support by setting `USE_SELENIUM=true` in `.env` or `use_selenium: true` in the page's selectors
+   - Enable Playwright support by setting `USE_PLAYWRIGHT=true` in `.env` or `use_playwright: true` in the page's selectors
    - Rebuild Docker container if using Docker: `docker-compose up -d --build`
 3. Verify the page has visible job listings
 4. Check logs for selector detection issues
-5. For JavaScript-heavy sites (Microsoft, LinkedIn, etc.), Selenium is required
+5. For JavaScript-heavy sites (Microsoft, LinkedIn, etc.), Playwright is automatically used
 
 ### Redis connection failed
 
@@ -415,7 +421,7 @@ For issues and questions:
 
 ## Roadmap
 
-- [x] Support for JavaScript-rendered pages (Selenium) ✅
+- [x] Support for JavaScript-rendered pages (Playwright) ✅
 - [ ] Job filtering by keywords, location, etc.
 - [ ] Email notifications in addition to Telegram
 - [ ] Web dashboard for monitoring
@@ -430,7 +436,7 @@ Built with:
 - [Redis](https://redis.io/)
 - [Beautiful Soup](https://www.crummy.com/software/BeautifulSoup/)
 - [Requests](https://requests.readthedocs.io/)
-- [Selenium](https://www.selenium.dev/) (for JavaScript-rendered pages)
+- [Playwright](https://playwright.dev/python/) (for JavaScript-rendered pages)
 
 ---
 

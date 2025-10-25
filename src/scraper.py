@@ -7,12 +7,7 @@ import requests
 from bs4 import BeautifulSoup
 import time
 import random
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.common.by import By
+from playwright.sync_api import sync_playwright, Browser, BrowserContext, Page
 
 from models import Job, Selectors
 from selector_detector import SelectorDetector
@@ -23,13 +18,15 @@ logger = logging.getLogger(__name__)
 class JobScraper:
     """Scrapes job listings from career pages."""
 
-    def __init__(self, user_agent: Optional[str] = None, use_selenium: bool = False):
+    def __init__(self, user_agent: Optional[str] = None, use_playwright: bool = False):
         """Initialize the scraper."""
         self.user_agent = user_agent or self._get_default_user_agent()
         self.selector_detector = SelectorDetector()
         self.session = self._create_session()
-        self.use_selenium = use_selenium
-        self._driver = None
+        self.use_playwright = use_playwright
+        self._playwright = None
+        self._browser = None
+        self._context = None
 
     def _get_default_user_agent(self) -> str:
         """Get default user agent string."""
@@ -53,89 +50,98 @@ class JobScraper:
         })
         return session
 
-    def _get_driver(self) -> webdriver.Chrome:
-        """Get or create a Selenium WebDriver instance."""
-        if self._driver is None:
-            chrome_options = Options()
-            chrome_options.add_argument('--headless')
-            chrome_options.add_argument('--no-sandbox')
-            chrome_options.add_argument('--disable-dev-shm-usage')
-            chrome_options.add_argument('--disable-gpu')
-            chrome_options.add_argument(f'user-agent={self.user_agent}')
-            chrome_options.add_argument('--window-size=1920,1080')
-
+    def _get_browser_context(self) -> tuple[Browser, BrowserContext]:
+        """Get or create a Playwright browser and context."""
+        if self._browser is None or self._context is None:
             try:
-                self._driver = webdriver.Chrome(options=chrome_options)
-                logger.info("Selenium WebDriver initialized successfully")
+                self._playwright = sync_playwright().start()
+                self._browser = self._playwright.chromium.launch(
+                    headless=True,
+                    args=['--no-sandbox', '--disable-dev-shm-usage']
+                )
+                self._context = self._browser.new_context(
+                    user_agent=self.user_agent,
+                    viewport={'width': 1920, 'height': 1080}
+                )
+                logger.info("Playwright browser initialized successfully")
             except Exception as e:
-                logger.error(f"Failed to initialize Selenium WebDriver: {e}")
+                logger.error(f"Failed to initialize Playwright: {e}")
                 raise
 
-        return self._driver
+        return self._browser, self._context
 
-    def _fetch_page_with_selenium(self, url: str, wait_for_element: Optional[str] = None, timeout: int = 30) -> Optional[str]:
+    def _fetch_page_with_playwright(self, url: str, wait_for_selector: Optional[str] = None, timeout: int = 30000) -> Optional[str]:
         """
-        Fetch HTML content using Selenium for JavaScript-rendered pages.
+        Fetch HTML content using Playwright for JavaScript-rendered pages.
 
         Args:
             url: The URL to fetch
-            wait_for_element: CSS selector to wait for before getting HTML
-            timeout: Maximum time to wait for page load
+            wait_for_selector: CSS selector to wait for before getting HTML
+            timeout: Maximum time to wait for page load in milliseconds
 
         Returns:
             HTML content or None if failed
         """
         try:
-            driver = self._get_driver()
-            logger.info(f"Fetching {url} with Selenium")
+            browser, context = self._get_browser_context()
+            logger.info(f"Fetching {url} with Playwright")
 
-            driver.get(url)
+            page = context.new_page()
 
-            # Wait for dynamic content to load
-            if wait_for_element:
-                WebDriverWait(driver, timeout).until(
-                    EC.presence_of_element_located((By.CSS_SELECTOR, wait_for_element))
-                )
-            else:
-                # Default: wait a bit for JavaScript to execute
-                time.sleep(3)
+            # Navigate to the page
+            page.goto(url, wait_until='networkidle', timeout=timeout)
 
-            html = driver.page_source
-            logger.info(f"Successfully fetched {url} with Selenium (page size: {len(html)} bytes)")
+            # Wait for specific element if provided
+            if wait_for_selector:
+                page.wait_for_selector(wait_for_selector, timeout=timeout)
+
+            # Get the HTML content
+            html = page.content()
+            page.close()
+
+            logger.info(f"Successfully fetched {url} with Playwright (page size: {len(html)} bytes)")
             return html
 
         except Exception as e:
-            logger.error(f"Failed to fetch {url} with Selenium: {e}")
+            logger.error(f"Failed to fetch {url} with Playwright: {e}")
             return None
 
     def close(self):
         """Clean up resources."""
-        if self._driver:
-            try:
-                self._driver.quit()
-                logger.info("Selenium WebDriver closed")
-            except Exception as e:
-                logger.error(f"Error closing Selenium WebDriver: {e}")
-            finally:
-                self._driver = None
+        try:
+            if self._context:
+                self._context.close()
+                logger.debug("Playwright context closed")
+            if self._browser:
+                self._browser.close()
+                logger.debug("Playwright browser closed")
+            if self._playwright:
+                self._playwright.stop()
+                logger.info("Playwright stopped")
+        except Exception as e:
+            logger.error(f"Error closing Playwright: {e}")
+        finally:
+            self._context = None
+            self._browser = None
+            self._playwright = None
 
-    def fetch_page(self, url: str, timeout: int = 30, use_selenium: Optional[bool] = None) -> Optional[str]:
+    def fetch_page(self, url: str, timeout: int = 30, use_playwright: Optional[bool] = None) -> Optional[str]:
         """
         Fetch HTML content from a URL with anti-detection measures.
 
         Args:
             url: The URL to fetch
             timeout: Request timeout in seconds
-            use_selenium: Override to force Selenium usage for this request
+            use_playwright: Override to force Playwright usage for this request
 
         Returns:
             HTML content or None if failed
         """
-        # Determine whether to use Selenium for this request
-        should_use_selenium = use_selenium if use_selenium is not None else self.use_selenium
+        # Determine whether to use Playwright for this request
+        should_use_playwright = use_playwright if use_playwright is not None else self.use_playwright
 
-        if should_use_selenium:
-            return self._fetch_page_with_selenium(url, timeout=timeout)
+        if should_use_playwright:
+            return self._fetch_page_with_playwright(url, timeout=timeout * 1000)  # Convert to ms
 
         try:
             # Random delay to appear more human-like
@@ -149,10 +155,10 @@ class JobScraper:
 
         except requests.exceptions.RequestException as e:
             logger.error(f"Failed to fetch {url}: {e}")
-            # Fallback to Selenium if regular request fails
-            if not should_use_selenium:
-                logger.info(f"Retrying {url} with Selenium")
-                return self._fetch_page_with_selenium(url, timeout=timeout)
+            # Fallback to Playwright if regular request fails
+            if not should_use_playwright:
+                logger.info(f"Retrying {url} with Playwright")
+                return self._fetch_page_with_playwright(url, timeout=timeout * 1000)
             return None
 
     def detect_selectors(self, url: str) -> Dict[str, Optional[str]]:
@@ -166,25 +172,25 @@ class JobScraper:
             Dictionary of detected selectors
         """
         # Try with regular request first
-        html = self.fetch_page(url, use_selenium=False)
+        html = self.fetch_page(url, use_playwright=False)
         if not html:
             return {}
 
         selectors = self.selector_detector.detect_selectors(html, url)
 
-        # If no job containers found, retry with Selenium (likely a JavaScript-rendered page)
+        # If no job containers found, retry with Playwright (likely a JavaScript-rendered page)
         if not selectors.get('job_card'):
-            logger.info(f"No jobs detected with regular request, retrying with Selenium for {url}")
-            html_selenium = self.fetch_page(url, use_selenium=True)
+            logger.info(f"No jobs detected with regular request, retrying with Playwright for {url}")
+            html_playwright = self.fetch_page(url, use_playwright=True)
 
-            if html_selenium and html_selenium != html:  # Make sure we got different content
-                selectors_selenium = self.selector_detector.detect_selectors(html_selenium, url)
+            if html_playwright and html_playwright != html:  # Make sure we got different content
+                selectors_playwright = self.selector_detector.detect_selectors(html_playwright, url)
 
-                if selectors_selenium.get('job_card'):
-                    logger.info(f"Successfully detected jobs with Selenium for {url}")
-                    # Mark that this page needs Selenium
-                    selectors_selenium['use_selenium'] = True
-                    return selectors_selenium
+                if selectors_playwright.get('job_card'):
+                    logger.info(f"Successfully detected jobs with Playwright for {url}")
+                    # Mark that this page needs Playwright
+                    selectors_playwright['use_playwright'] = True
+                    return selectors_playwright
 
         return selectors
 
@@ -207,9 +213,9 @@ class JobScraper:
         Returns:
             List of new Job objects
         """
-        # Use Selenium if specified in selectors
-        use_selenium_for_page = selectors.use_selenium if hasattr(selectors, 'use_selenium') else False
-        html = self.fetch_page(url, use_selenium=use_selenium_for_page)
+        # Use Playwright if specified in selectors
+        use_playwright_for_page = selectors.use_playwright if hasattr(selectors, 'use_playwright') else False
+        html = self.fetch_page(url, use_playwright=use_playwright_for_page)
         if not html:
             return []
 
