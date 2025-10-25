@@ -157,6 +157,7 @@ Let's get started! Add your first career page with /add
             page.selectors.job_title = detected_selectors.get('job_title')
             page.selectors.job_link = detected_selectors.get('job_link')
             page.selectors.job_location = detected_selectors.get('job_location')
+            page.selectors.use_selenium = detected_selectors.get('use_selenium', False)
 
             # Save to Firebase
             success = self.firebase.add_career_page(page)
@@ -168,11 +169,16 @@ Let's get started! Add your first career page with /add
                 # Test scrape
                 test_results = self.scraper.test_selectors(url, page.selectors)
 
+                selenium_note = ""
+                if page.selectors.use_selenium:
+                    selenium_note = "🔧 Using Selenium (JavaScript-rendered page)\n"
+
                 await processing_msg.edit_text(
                     f"✅ *Career page added successfully!*\n\n"
                     f"🔗 URL: {url}\n"
                     f"⏱️ Check interval: {interval}s\n"
                     f"📊 Detected: {test_results.get('job_cards_found', 0)} jobs\n"
+                    f"{selenium_note}"
                     f"🆔 Page ID: `{page_id[:8]}...`\n\n"
                     f"I'll notify you when new jobs are posted!",
                     parse_mode='Markdown'
@@ -368,14 +374,22 @@ Let's get started! Add your first career page with /add
                 job_card=detected.get('job_card'),
                 job_title=detected.get('job_title'),
                 job_link=detected.get('job_link'),
-                job_location=detected.get('job_location')
+                job_location=detected.get('job_location'),
+                use_selenium=detected.get('use_selenium', False)
             )
 
             results = self.scraper.test_selectors(url, selectors)
 
+            selenium_note = ""
+            if selectors.use_selenium:
+                selenium_note = "🔧 Method: Selenium (JavaScript-rendered)\n"
+            else:
+                selenium_note = "🔧 Method: Standard HTTP\n"
+
             message = (
                 f"✅ *Test Results*\n\n"
-                f"📊 Jobs found: {results.get('job_cards_found', 0)}\n\n"
+                f"📊 Jobs found: {results.get('job_cards_found', 0)}\n"
+                f"{selenium_note}\n"
             )
 
             if results.get('sample_jobs'):

@@ -165,11 +165,28 @@ class JobScraper:
         Returns:
             Dictionary of detected selectors
         """
-        html = self.fetch_page(url)
+        # Try with regular request first
+        html = self.fetch_page(url, use_selenium=False)
         if not html:
             return {}
 
-        return self.selector_detector.detect_selectors(html, url)
+        selectors = self.selector_detector.detect_selectors(html, url)
+
+        # If no job containers found, retry with Selenium (likely a JavaScript-rendered page)
+        if not selectors.get('job_card'):
+            logger.info(f"No jobs detected with regular request, retrying with Selenium for {url}")
+            html_selenium = self.fetch_page(url, use_selenium=True)
+
+            if html_selenium and html_selenium != html:  # Make sure we got different content
+                selectors_selenium = self.selector_detector.detect_selectors(html_selenium, url)
+
+                if selectors_selenium.get('job_card'):
+                    logger.info(f"Successfully detected jobs with Selenium for {url}")
+                    # Mark that this page needs Selenium
+                    selectors_selenium['use_selenium'] = True
+                    return selectors_selenium
+
+        return selectors
 
     def scrape_jobs(
         self,
