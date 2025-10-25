@@ -282,7 +282,7 @@ class JobScraper:
 
         for card in job_cards:
             try:
-                job = self._extract_job_from_card(card, page_id, url, selectors)
+                job = self._extract_job_from_card(card, page_id, url, selectors, soup)
                 if job:
                     job_hash = job.get_hash()
 
@@ -305,7 +305,8 @@ class JobScraper:
         card,
         page_id: str,
         base_url: str,
-        selectors: Selectors
+        selectors: Selectors,
+        soup: Optional[BeautifulSoup] = None
     ) -> Optional[Job]:
         """Extract job information from a job card element."""
 
@@ -352,7 +353,7 @@ class JobScraper:
                 location = loc_elem.get_text(strip=True)
 
         # Extract company name from card or infer
-        company = self._extract_company_name(card, base_url)
+        company = self._extract_company_name(card, base_url, soup)
 
         # Generate unique ID
         job_id = self._generate_job_id(title, company, job_url)
@@ -366,19 +367,144 @@ class JobScraper:
             location=location
         )
 
-    def _extract_company_name(self, card, base_url: str) -> str:
+    def _extract_company_name(self, card, base_url: str, soup: Optional[BeautifulSoup] = None) -> str:
         """Extract or infer company name."""
-        # Try to find company name in card
+        # Try to find company name in card first
         company_elem = card.find(class_=lambda x: x and 'company' in x.lower())
         if company_elem:
-            return company_elem.get_text(strip=True)
+            company_text = company_elem.get_text(strip=True)
+            if company_text:
+                return company_text
 
-        # Fallback: extract from URL
+        # Try to extract from page title or metadata if soup is provided
+        if soup:
+            # Check page title
+            title_tag = soup.find('title')
+            if title_tag:
+                title_text = title_tag.get_text()
+                # Common patterns: "Company - Careers", "Jobs at Company", "Company Careers"
+                if ' - ' in title_text:
+                    company_candidate = title_text.split(' - ')[0].strip()
+                    if company_candidate and not any(word in company_candidate.lower() for word in ['job', 'career', 'hiring']):
+                        return company_candidate
+                if 'Jobs at ' in title_text:
+                    return title_text.replace('Jobs at ', '').split(' - ')[0].strip()
+                if ' Careers' in title_text:
+                    return title_text.replace(' Careers', '').split(' - ')[0].strip()
+
+        # Fallback: extract from URL with improved parsing
         from urllib.parse import urlparse
         domain = urlparse(base_url).netloc
-        # Remove www. and .com
-        company = domain.replace('www.', '').split('.')[0]
+
+        # Known domain mappings for common job platforms
+        domain_mappings = {
+            'oraclecloud.com': 'Oracle',
+            'myworkdayjobs.com': self._extract_workday_company(domain),
+            'greenhouse.io': self._extract_greenhouse_company(base_url),
+            'lever.co': self._extract_lever_company(base_url),
+            'ashbyhq.com': self._extract_ashby_company(base_url),
+            'bamboohr.com': self._extract_bamboohr_company(base_url),
+            'smartrecruiters.com': self._extract_smartrecruiters_company(base_url),
+            'jobvite.com': self._extract_jobvite_company(base_url),
+            'icims.com': self._extract_icims_company(base_url),
+        }
+
+        # Check if domain matches any known patterns
+        for pattern, extractor in domain_mappings.items():
+            if pattern in domain:
+                if callable(extractor):
+                    result = extractor
+                    if result:
+                        return result
+                else:
+                    return extractor
+
+        # Generic fallback: smart domain parsing
+        # Remove www. and common subdomains
+        clean_domain = domain.replace('www.', '')
+
+        # For complex subdomains, try to find the company name
+        parts = clean_domain.split('.')
+
+        # If domain has many parts, try to find the meaningful one
+        # Example: eeho.fa.us2.oraclecloud.com -> look for 'oracle'
+        for i in range(len(parts) - 1, -1, -1):
+            part = parts[i]
+            # Skip TLDs and common subdomains
+            if part.lower() not in ['com', 'org', 'net', 'io', 'co', 'us', 'uk', 'ca', 'au', 'de', 'fr', 'in', 'jobs', 'careers', 'www', 'fa', 'us2', 'cloud', 'app', 'api']:
+                # Check if this part contains a recognizable company name
+                if len(part) > 2:  # Avoid single letters
+                    return part.title()
+
+        # Last resort: use first part
+        company = parts[0]
         return company.title()
+
+    def _extract_workday_company(self, domain: str) -> str:
+        """Extract company name from Workday URLs."""
+        # Pattern: companyname.myworkdayjobs.com
+        parts = domain.split('.')
+        if parts:
+            return parts[0].title()
+        return "Company"
+
+    def _extract_greenhouse_company(self, url: str) -> str:
+        """Extract company name from Greenhouse URLs."""
+        # Pattern: boards.greenhouse.io/companyname
+        if '/boards/' in url or 'boards.greenhouse' in url:
+            parts = url.split('/')
+            for i, part in enumerate(parts):
+                if part == 'boards' and i + 1 < len(parts):
+                    return parts[i + 1].replace('-', ' ').title()
+        return "Company"
+
+    def _extract_lever_company(self, url: str) -> str:
+        """Extract company name from Lever URLs."""
+        # Pattern: jobs.lever.co/companyname
+        parts = url.split('/')
+        if 'lever.co' in url and len(parts) > 3:
+            return parts[3].replace('-', ' ').title()
+        return "Company"
+
+    def _extract_ashby_company(self, url: str) -> str:
+        """Extract company name from Ashby URLs."""
+        # Pattern: jobs.ashbyhq.com/companyname
+        parts = url.split('/')
+        if 'ashbyhq.com' in url and len(parts) > 3:
+            return parts[3].replace('-', ' ').title()
+        return "Company"
+
+    def _extract_bamboohr_company(self, url: str) -> str:
+        """Extract company name from BambooHR URLs."""
+        # Pattern: companyname.bamboohr.com
+        from urllib.parse import urlparse
+        domain = urlparse(url).netloc
+        parts = domain.split('.')
+        if parts:
+            return parts[0].title()
+        return "Company"
+
+    def _extract_smartrecruiters_company(self, url: str) -> str:
+        """Extract company name from SmartRecruiters URLs."""
+        # Pattern: careers.smartrecruiters.com/companyname
+        parts = url.split('/')
+        if 'smartrecruiters.com' in url and len(parts) > 3:
+            return parts[3].replace('-', ' ').title()
+        return "Company"
+
+    def _extract_jobvite_company(self, url: str) -> str:
+        """Extract company name from Jobvite URLs."""
+        # Pattern: jobs.jobvite.com/companyname
+        parts = url.split('/')
+        if 'jobvite.com' in url and len(parts) > 3:
+            return parts[3].replace('-', ' ').title()
+        return "Company"
+
+    def _extract_icims_company(self, url: str) -> str:
+        """Extract company name from iCIMS URLs."""
+        # Pattern: careers.icims.com/jobs/intro?hashed=-companyid
+        # This is harder, might need page title
+        return "Company"
 
     def _generate_job_id(self, title: str, company: str, url: str) -> str:
         """Generate a unique ID for a job."""
@@ -415,7 +541,7 @@ class JobScraper:
             # Extract sample jobs
             for card in cards[:3]:
                 try:
-                    job = self._extract_job_from_card(card, 'test', url, selectors)
+                    job = self._extract_job_from_card(card, 'test', url, selectors, soup)
                     if job:
                         results['sample_jobs'].append({
                             'title': job.title,

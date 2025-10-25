@@ -450,26 +450,34 @@ Let's get started! Add your first career page with /add
     async def send_job_notification(self, user_id: str, page: CareerPage, jobs: List[Job]):
         """Send notification for new jobs."""
         try:
-            message = f"🎉 *New Jobs Found!*\n\n"
-            message += f"📄 Page: {page.url}\n"
-            message += f"💼 {len(jobs)} new job(s)\n\n"
+            # Split jobs into batches of 10 to avoid message length limits
+            batch_size = 10
 
-            for job in jobs[:5]:  # Limit to 5 jobs per message
-                message += f"*{job.title}*\n"
-                message += f"🏢 {job.company}\n"
-                if job.location:
-                    message += f"📍 {job.location}\n"
-                message += f"🔗 [Apply Now]({job.url})\n\n"
+            for i in range(0, len(jobs), batch_size):
+                batch = jobs[i:i + batch_size]
 
-            if len(jobs) > 5:
-                message += f"_...and {len(jobs) - 5} more jobs_\n"
+                # Use HTML formatting for better URL handling
+                if i == 0:
+                    message = f"🎉 <b>New Jobs Found!</b>\n"
+                    message += f"💼 {len(jobs)} new job(s)\n\n"
+                else:
+                    message = f"<b>Jobs continued...</b>\n\n"
 
-            await self.application.bot.send_message(
-                chat_id=user_id,
-                text=message,
-                parse_mode='Markdown',
-                disable_web_page_preview=True
-            )
+                for job in batch:
+                    # Escape HTML special characters
+                    title = job.title.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+                    company = job.company.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+
+                    message += f"<b>{title}</b>\n"
+                    message += f"🏢 {company}\n"
+                    message += f"🔗 <a href=\"{job.url}\">Apply Now</a>\n\n"
+
+                await self.application.bot.send_message(
+                    chat_id=user_id,
+                    text=message,
+                    parse_mode='HTML',
+                    disable_web_page_preview=True
+                )
 
             logger.info(f"Sent notification to user {user_id} for {len(jobs)} jobs")
 
