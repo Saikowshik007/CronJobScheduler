@@ -85,6 +85,10 @@ class CareerPage:
         selectors_data = data.get('selectors', {})
         metadata_data = data.get('metadata', {})
 
+        # Backward compatibility: convert old use_selenium to use_playwright
+        if 'use_selenium' in selectors_data:
+            selectors_data['use_playwright'] = selectors_data.pop('use_selenium')
+
         return cls(
             id=data['id'],
             url=data['url'],
