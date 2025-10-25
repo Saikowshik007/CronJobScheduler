@@ -100,7 +100,7 @@ class SelectorDetector:
                 candidates.append(elem)
 
             # Check data attributes
-            for elem in soup.find_all(attrs=lambda x: any(pattern.search(str(v)) for v in x.values() if x)):
+            for elem in soup.find_all(attrs=lambda x: x and any(pattern.search(str(v)) for v in x.values())):
                 candidates.append(elem)
 
         # Also look for lists of similar elements (common pattern)
