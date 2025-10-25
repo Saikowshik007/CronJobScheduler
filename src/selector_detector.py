@@ -13,14 +13,20 @@ class SelectorDetector:
     # Common patterns for job listing containers
     JOB_CONTAINER_PATTERNS = [
         # Class patterns
-        r'job[-_]?(?:item|card|listing|post|entry|container|row|box)',
-        r'position[-_]?(?:item|card|listing|entry)',
+        r'job[-_]?(?:item|card|listing|post|entry|container|row|box|tile)',
+        r'position[-_]?(?:item|card|listing|entry|tile)',
         r'career[-_]?(?:item|card|listing|entry)',
         r'opening[-_]?(?:item|card|listing|entry)',
         r'vacancy[-_]?(?:item|card|listing)',
+        r'result[-_]?(?:item|card|container)',
+        r'search[-_]?result',
         # Data attributes
         r'data-job',
         r'data-position',
+        r'data-automation.*job',
+        # Role/ARIA attributes
+        r'listitem',
+        r'article',
     ]
 
     # Common patterns for job titles
@@ -103,12 +109,34 @@ class SelectorDetector:
             for elem in soup.find_all(attrs=lambda x: isinstance(x, dict) and any(pattern.search(str(v)) for v in x.values())):
                 candidates.append(elem)
 
+        # Look for ARIA roles commonly used in job listings
+        for elem in soup.find_all(attrs={'role': 'listitem'}):
+            candidates.append(elem)
+
+        for elem in soup.find_all('article'):
+            candidates.append(elem)
+
+        # Look for elements with data-automation attributes (common in Microsoft and other modern sites)
+        for elem in soup.find_all(attrs={'data-automation': True}):
+            attr_value = elem.get('data-automation', '').lower()
+            if 'job' in attr_value or 'result' in attr_value or 'posting' in attr_value:
+                candidates.append(elem)
+
         # Also look for lists of similar elements (common pattern)
         candidates.extend(self._detect_repeated_structures(soup))
 
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_candidates = []
+        for candidate in candidates:
+            candidate_id = id(candidate)
+            if candidate_id not in seen:
+                seen.add(candidate_id)
+                unique_candidates.append(candidate)
+
         # Score and filter candidates
         scored_candidates = []
-        for candidate in candidates:
+        for candidate in unique_candidates:
             score = self._score_job_container(candidate)
             if score > 0:
                 scored_candidates.append((score, candidate))
@@ -160,7 +188,7 @@ class SelectorDetector:
         text = elem.get_text().lower()
 
         # Check for job-related keywords
-        job_keywords = ['apply', 'position', 'location', 'full-time', 'part-time', 'remote', 'hybrid', 'salary']
+        job_keywords = ['apply', 'position', 'location', 'full-time', 'part-time', 'remote', 'hybrid', 'salary', 'posted', 'requisition']
         for keyword in job_keywords:
             if keyword in text:
                 score += 1
@@ -169,12 +197,32 @@ class SelectorDetector:
         if elem.find('a'):
             score += 2
 
+        # Check for ARIA role
+        if elem.get('role') in ['listitem', 'article']:
+            score += 3
+
+        # Check for job-related data attributes
+        for attr_name, attr_value in elem.attrs.items():
+            if isinstance(attr_value, str):
+                attr_lower = attr_value.lower()
+                if 'job' in attr_lower or 'position' in attr_lower or 'result' in attr_lower:
+                    score += 2
+                    break
+
         # Penalize if too much text (likely not a job card)
-        if len(text) > 500:
-            score -= 2
+        if len(text) > 1000:
+            score -= 3
+        elif len(text) > 500:
+            score -= 1
 
         # Reward if it has appropriate size
-        if 50 < len(text) < 300:
+        if 50 < len(text) < 400:
+            score += 2
+        elif 20 < len(text) < 50:
+            score += 1
+
+        # Reward if it has structured content (headings, paragraphs, etc.)
+        if elem.find(['h2', 'h3', 'h4']):
             score += 1
 
         return score

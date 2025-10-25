@@ -7,6 +7,12 @@ import requests
 from bs4 import BeautifulSoup
 import time
 import random
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.by import By
 
 from models import Job, Selectors
 from selector_detector import SelectorDetector
@@ -17,11 +23,13 @@ logger = logging.getLogger(__name__)
 class JobScraper:
     """Scrapes job listings from career pages."""
 
-    def __init__(self, user_agent: Optional[str] = None):
+    def __init__(self, user_agent: Optional[str] = None, use_selenium: bool = False):
         """Initialize the scraper."""
         self.user_agent = user_agent or self._get_default_user_agent()
         self.selector_detector = SelectorDetector()
         self.session = self._create_session()
+        self.use_selenium = use_selenium
+        self._driver = None
 
     def _get_default_user_agent(self) -> str:
         """Get default user agent string."""
@@ -45,17 +53,90 @@ class JobScraper:
         })
         return session
 
-    def fetch_page(self, url: str, timeout: int = 30) -> Optional[str]:
+    def _get_driver(self) -> webdriver.Chrome:
+        """Get or create a Selenium WebDriver instance."""
+        if self._driver is None:
+            chrome_options = Options()
+            chrome_options.add_argument('--headless')
+            chrome_options.add_argument('--no-sandbox')
+            chrome_options.add_argument('--disable-dev-shm-usage')
+            chrome_options.add_argument('--disable-gpu')
+            chrome_options.add_argument(f'user-agent={self.user_agent}')
+            chrome_options.add_argument('--window-size=1920,1080')
+
+            try:
+                self._driver = webdriver.Chrome(options=chrome_options)
+                logger.info("Selenium WebDriver initialized successfully")
+            except Exception as e:
+                logger.error(f"Failed to initialize Selenium WebDriver: {e}")
+                raise
+
+        return self._driver
+
+    def _fetch_page_with_selenium(self, url: str, wait_for_element: Optional[str] = None, timeout: int = 30) -> Optional[str]:
+        """
+        Fetch HTML content using Selenium for JavaScript-rendered pages.
+
+        Args:
+            url: The URL to fetch
+            wait_for_element: CSS selector to wait for before getting HTML
+            timeout: Maximum time to wait for page load
+
+        Returns:
+            HTML content or None if failed
+        """
+        try:
+            driver = self._get_driver()
+            logger.info(f"Fetching {url} with Selenium")
+
+            driver.get(url)
+
+            # Wait for dynamic content to load
+            if wait_for_element:
+                WebDriverWait(driver, timeout).until(
+                    EC.presence_of_element_located((By.CSS_SELECTOR, wait_for_element))
+                )
+            else:
+                # Default: wait a bit for JavaScript to execute
+                time.sleep(3)
+
+            html = driver.page_source
+            logger.info(f"Successfully fetched {url} with Selenium (page size: {len(html)} bytes)")
+            return html
+
+        except Exception as e:
+            logger.error(f"Failed to fetch {url} with Selenium: {e}")
+            return None
+
+    def close(self):
+        """Clean up resources."""
+        if self._driver:
+            try:
+                self._driver.quit()
+                logger.info("Selenium WebDriver closed")
+            except Exception as e:
+                logger.error(f"Error closing Selenium WebDriver: {e}")
+            finally:
+                self._driver = None
+
+    def fetch_page(self, url: str, timeout: int = 30, use_selenium: Optional[bool] = None) -> Optional[str]:
         """
         Fetch HTML content from a URL with anti-detection measures.
 
         Args:
             url: The URL to fetch
             timeout: Request timeout in seconds
+            use_selenium: Override to force Selenium usage for this request
 
         Returns:
             HTML content or None if failed
         """
+        # Determine whether to use Selenium for this request
+        should_use_selenium = use_selenium if use_selenium is not None else self.use_selenium
+
+        if should_use_selenium:
+            return self._fetch_page_with_selenium(url, timeout=timeout)
+
         try:
             # Random delay to appear more human-like
             time.sleep(random.uniform(1, 3))
@@ -68,6 +149,10 @@ class JobScraper:
 
         except requests.exceptions.RequestException as e:
             logger.error(f"Failed to fetch {url}: {e}")
+            # Fallback to Selenium if regular request fails
+            if not should_use_selenium:
+                logger.info(f"Retrying {url} with Selenium")
+                return self._fetch_page_with_selenium(url, timeout=timeout)
             return None
 
     def detect_selectors(self, url: str) -> Dict[str, Optional[str]]:
@@ -105,7 +190,9 @@ class JobScraper:
         Returns:
             List of new Job objects
         """
-        html = self.fetch_page(url)
+        # Use Selenium if specified in selectors
+        use_selenium_for_page = selectors.use_selenium if hasattr(selectors, 'use_selenium') else False
+        html = self.fetch_page(url, use_selenium=use_selenium_for_page)
         if not html:
             return []
 
