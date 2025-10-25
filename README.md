@@ -238,9 +238,11 @@ CronJobScheduler/
 The bot uses pattern matching and HTML structure analysis to automatically detect job listings:
 
 - Identifies common CSS classes and patterns (`job-card`, `position-item`, etc.)
+- Detects ARIA roles and data attributes (for modern SPAs)
 - Detects repeated HTML structures (likely job listings)
 - Scores elements based on job-related keywords
 - Extracts job title, link, location, and company information
+- Automatically uses Selenium for JavaScript-rendered pages when enabled
 
 ### 2. Multi-threaded Monitoring
 
