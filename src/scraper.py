@@ -171,28 +171,40 @@ class JobScraper:
         Returns:
             Dictionary of detected selectors
         """
-        # Try with regular request first
-        html = self.fetch_page(url, use_playwright=False)
-        if not html:
+        try:
+            # Try with regular request first
+            logger.info(f"Starting selector detection for {url}")
+            html = self.fetch_page(url, use_playwright=False)
+            if not html:
+                logger.error(f"Failed to fetch page content for {url}")
+                return {}
+
+            logger.info(f"Fetched {len(html)} bytes, analyzing selectors...")
+            selectors = self.selector_detector.detect_selectors(html, url)
+
+            # If no job containers found, retry with Playwright (likely a JavaScript-rendered page)
+            if not selectors.get('job_card'):
+                logger.info(f"No jobs detected with regular request, retrying with Playwright for {url}")
+                html_playwright = self.fetch_page(url, use_playwright=True)
+
+                if html_playwright and html_playwright != html:  # Make sure we got different content
+                    logger.info(f"Fetched {len(html_playwright)} bytes with Playwright, analyzing...")
+                    selectors_playwright = self.selector_detector.detect_selectors(html_playwright, url)
+
+                    if selectors_playwright.get('job_card'):
+                        logger.info(f"Successfully detected jobs with Playwright for {url}")
+                        # Mark that this page needs Playwright
+                        selectors_playwright['use_playwright'] = True
+                        return selectors_playwright
+                    else:
+                        logger.warning(f"Still no jobs detected even with Playwright for {url}")
+                else:
+                    logger.warning(f"Playwright fetch failed or returned same content for {url}")
+
+            return selectors
+        except Exception as e:
+            logger.error(f"Exception in detect_selectors for {url}: {e}", exc_info=True)
             return {}
-
-        selectors = self.selector_detector.detect_selectors(html, url)
-
-        # If no job containers found, retry with Playwright (likely a JavaScript-rendered page)
-        if not selectors.get('job_card'):
-            logger.info(f"No jobs detected with regular request, retrying with Playwright for {url}")
-            html_playwright = self.fetch_page(url, use_playwright=True)
-
-            if html_playwright and html_playwright != html:  # Make sure we got different content
-                selectors_playwright = self.selector_detector.detect_selectors(html_playwright, url)
-
-                if selectors_playwright.get('job_card'):
-                    logger.info(f"Successfully detected jobs with Playwright for {url}")
-                    # Mark that this page needs Playwright
-                    selectors_playwright['use_playwright'] = True
-                    return selectors_playwright
-
-        return selectors
 
     def scrape_jobs(
         self,
