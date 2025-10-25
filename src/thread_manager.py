@@ -212,7 +212,17 @@ class ThreadManager:
     def _sync_threads(self):
         """Synchronize running threads with active pages in Firebase."""
         try:
-            active_pages = self.firebase.get_active_career_pages()
+            # Try to get from Redis cache first to reduce Firebase reads
+            active_pages = self.redis.get_cached_active_pages()
+
+            if active_pages is None:
+                # Cache miss - fetch from Firebase and cache it
+                logger.debug("Fetching active pages from Firebase (cache miss)")
+                active_pages = self.firebase.get_active_career_pages()
+                self.redis.cache_active_pages(active_pages)
+            else:
+                logger.debug("Using cached active pages from Redis")
+
             active_page_ids = {page.id for page in active_pages}
 
             with self.lock:
@@ -281,21 +291,29 @@ class ThreadManager:
                 return False
 
             self._start_thread(page)
+            # Invalidate cache so next sync fetches fresh data
+            self.redis.invalidate_active_pages_cache()
             return True
 
     def remove_page(self, page_id: str):
         """Remove a page from monitoring."""
         with self.lock:
             self._stop_thread(page_id)
+            # Invalidate cache so next sync fetches fresh data
+            self.redis.invalidate_active_pages_cache()
 
     def pause_page(self, page_id: str):
         """Pause monitoring for a page."""
         self.firebase.update_page_status(page_id, "paused")
         self.remove_page(page_id)
+        # Invalidate cache so next sync fetches fresh data
+        self.redis.invalidate_active_pages_cache()
 
     def resume_page(self, page_id: str):
         """Resume monitoring for a page."""
         self.firebase.update_page_status(page_id, "active")
+        # Invalidate cache so next sync fetches fresh data
+        self.redis.invalidate_active_pages_cache()
         # Thread will be started in next sync
 
     def get_status(self) -> Dict:

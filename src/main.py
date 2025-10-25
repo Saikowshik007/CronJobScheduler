@@ -42,6 +42,7 @@ class JobScraperApp:
         self.redis_db = int(os.getenv('REDIS_DB', 0))
         self.redis_password = os.getenv('REDIS_PASSWORD', None)
         self.job_cache_ttl = int(os.getenv('JOB_CACHE_TTL', 604800))
+        self.pages_cache_ttl = int(os.getenv('PAGES_CACHE_TTL', 300))
         self.max_threads = int(os.getenv('MAX_THREADS', 50))
         self.user_agent = os.getenv('USER_AGENT', None)
         self.use_playwright_default = os.getenv('USE_PLAYWRIGHT', 'false').lower() == 'true'
@@ -76,7 +77,8 @@ class JobScraperApp:
                 port=self.redis_port,
                 db=self.redis_db,
                 password=self.redis_password,
-                job_ttl=self.job_cache_ttl
+                job_ttl=self.job_cache_ttl,
+                pages_cache_ttl=self.pages_cache_ttl
             )
 
             # Initialize Scraper

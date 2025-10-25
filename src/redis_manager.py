@@ -1,7 +1,8 @@
 """Redis manager for caching seen jobs with TTL."""
 import os
+import json
 import logging
-from typing import Set, Optional
+from typing import Set, Optional, List
 import redis
 from redis.exceptions import RedisError
 
@@ -17,7 +18,8 @@ class RedisManager:
         port: int = 6379,
         db: int = 0,
         password: Optional[str] = None,
-        job_ttl: int = 604800  # 7 days default
+        job_ttl: int = 604800,  # 7 days default
+        pages_cache_ttl: int = 300  # 5 minutes default
     ):
         """Initialize Redis connection."""
         try:
@@ -29,6 +31,7 @@ class RedisManager:
                 decode_responses=True
             )
             self.job_ttl = job_ttl
+            self.pages_cache_ttl = pages_cache_ttl
             # Test connection
             self.client.ping()
             logger.info(f"Redis connected successfully at {host}:{port}")
@@ -43,6 +46,65 @@ class RedisManager:
     def _get_page_lock_key(self, page_id: str) -> str:
         """Generate Redis key for page scraping lock."""
         return f"scrape_lock:{page_id}"
+
+    def _get_active_pages_cache_key(self) -> str:
+        """Generate Redis key for active pages cache."""
+        return "cache:active_career_pages"
+
+    # ===== Active Pages Cache Operations =====
+
+    def cache_active_pages(self, pages: List) -> bool:
+        """
+        Cache active career pages with TTL.
+        Stores pages as JSON to avoid Firebase reads.
+        """
+        try:
+            key = self._get_active_pages_cache_key()
+            # Convert pages to dict format for JSON serialization
+            pages_data = [page.to_dict() for page in pages]
+            pages_json = json.dumps(pages_data)
+
+            self.client.setex(key, self.pages_cache_ttl, pages_json)
+            logger.info(f"Cached {len(pages)} active pages (TTL: {self.pages_cache_ttl}s)")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to cache active pages: {e}")
+            return False
+
+    def get_cached_active_pages(self) -> Optional[List]:
+        """
+        Get cached active career pages.
+        Returns None if cache is empty or expired.
+        """
+        try:
+            key = self._get_active_pages_cache_key()
+            cached_data = self.client.get(key)
+
+            if cached_data is None:
+                logger.debug("Active pages cache miss")
+                return None
+
+            # Import CareerPage here to avoid circular imports
+            from models import CareerPage
+
+            pages_data = json.loads(cached_data)
+            pages = [CareerPage.from_dict(page_dict) for page_dict in pages_data]
+            logger.debug(f"Active pages cache hit ({len(pages)} pages)")
+            return pages
+        except Exception as e:
+            logger.error(f"Failed to get cached active pages: {e}")
+            return None
+
+    def invalidate_active_pages_cache(self) -> bool:
+        """Invalidate (delete) the active pages cache."""
+        try:
+            key = self._get_active_pages_cache_key()
+            self.client.delete(key)
+            logger.info("Invalidated active pages cache")
+            return True
+        except RedisError as e:
+            logger.error(f"Failed to invalidate active pages cache: {e}")
+            return False
 
     # ===== Seen Jobs Operations =====
 
