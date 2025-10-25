@@ -1,0 +1,21 @@
+# Telegram Bot
+python-telegram-bot==20.7
+
+# Firebase
+firebase-admin==6.4.0
+
+# Redis
+redis==5.0.1
+
+# Web Scraping
+beautifulsoup4==4.12.2
+requests==2.31.0
+lxml==5.1.0
+selenium==4.16.0
+
+# Utilities
+python-dotenv==1.0.0
+hashlib-additional==1.0.0
+
+# Async support
+asyncio==3.4.3

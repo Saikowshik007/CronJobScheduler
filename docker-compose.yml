@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: job-scraper-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+    restart: unless-stopped
+
+  app:
+    build: .
+    container_name: job-scraper-app
+    depends_on:
+      - redis
+    env_file:
+      - .env
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    volumes:
+      - ./src:/app/src
+      - ./firebase-credentials.json:/app/firebase-credentials.json
+    restart: unless-stopped
+
+volumes:
+  redis-data:
