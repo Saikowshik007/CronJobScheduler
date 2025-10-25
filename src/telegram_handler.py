@@ -1,7 +1,7 @@
 """Telegram bot handler for user interactions."""
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List
 from urllib.parse import urlparse
 
@@ -145,7 +145,7 @@ Let's get started! Add your first career page with /add
             page = CareerPage(
                 id=page_id,
                 url=url,
-                added_at=datetime.now(),
+                added_at=datetime.now(timezone.utc),
                 added_by_user=user_id,
                 interval=interval,
                 status="active"
@@ -179,7 +179,7 @@ Let's get started! Add your first career page with /add
                     f"⏱️ Check interval: {interval}s\n"
                     f"📊 Detected: {test_results.get('job_cards_found', 0)} jobs\n"
                     f"{selenium_note}"
-                    f"🆔 Page ID: `{page_id[:8]}...`\n\n"
+                    f"🆔 Page ID: {page_id[:8]}\n\n"
                     f"I'll notify you when new jobs are posted!",
                     parse_mode='Markdown'
                 )
@@ -426,7 +426,12 @@ Let's get started! Add your first career page with /add
 
         if isinstance(dt, datetime):
             # Calculate time ago
-            diff = datetime.now() - dt
+            now = datetime.now(timezone.utc)
+            # Handle both timezone-aware and naive datetimes
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+
+            diff = now - dt
             if diff.total_seconds() < 60:
                 return "Just now"
             elif diff.total_seconds() < 3600:

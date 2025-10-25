@@ -3,7 +3,7 @@ import logging
 import threading
 import time
 from typing import Dict, Optional, Callable
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import queue
 
 from models import CareerPage
@@ -69,7 +69,13 @@ class PageMonitorThread(threading.Thread):
             return True
 
         # Check if interval has passed
-        time_since_check = datetime.now() - self.page.last_check
+        now = datetime.now(timezone.utc)
+        # Handle both timezone-aware and naive datetimes
+        last_check = self.page.last_check
+        if last_check.tzinfo is None:
+            last_check = last_check.replace(tzinfo=timezone.utc)
+
+        time_since_check = now - last_check
         return time_since_check.total_seconds() >= self.page.interval
 
     def _scrape_and_notify(self):
