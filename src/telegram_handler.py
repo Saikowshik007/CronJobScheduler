@@ -1,6 +1,7 @@
 """Telegram bot handler for user interactions."""
 import logging
 import uuid
+import re
 from datetime import datetime, timezone
 from typing import List
 from urllib.parse import urlparse
@@ -173,9 +174,12 @@ Let's get started! Add your first career page with /add
                 if page.selectors.use_playwright:
                     playwright_note = "🔧 Using Playwright (JavaScript-rendered page)\n"
 
+                # Escape URL to prevent Markdown parsing issues
+                escaped_url = url.replace('_', '\\_').replace('*', '\\*').replace('[', '\\[').replace('`', '\\`')
+
                 await processing_msg.edit_text(
                     f"✅ *Career page added successfully!*\n\n"
-                    f"🔗 URL: {url}\n"
+                    f"🔗 URL: {escaped_url}\n"
                     f"⏱️ Check interval: {interval}s\n"
                     f"📊 Detected: {test_results.get('job_cards_found', 0)} jobs\n"
                     f"{playwright_note}"

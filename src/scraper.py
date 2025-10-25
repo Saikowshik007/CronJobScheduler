@@ -7,6 +7,8 @@ import requests
 from bs4 import BeautifulSoup
 import time
 import random
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from playwright.sync_api import sync_playwright, Browser, BrowserContext, Page
 
 from models import Job, Selectors
@@ -24,9 +26,6 @@ class JobScraper:
         self.selector_detector = SelectorDetector()
         self.session = self._create_session()
         self.use_playwright = use_playwright
-        self._playwright = None
-        self._browser = None
-        self._context = None
 
     def _get_default_user_agent(self) -> str:
         """Get default user agent string."""
@@ -50,29 +49,9 @@ class JobScraper:
         })
         return session
 
-    def _get_browser_context(self) -> tuple[Browser, BrowserContext]:
-        """Get or create a Playwright browser and context."""
-        if self._browser is None or self._context is None:
-            try:
-                self._playwright = sync_playwright().start()
-                self._browser = self._playwright.chromium.launch(
-                    headless=True,
-                    args=['--no-sandbox', '--disable-dev-shm-usage']
-                )
-                self._context = self._browser.new_context(
-                    user_agent=self.user_agent,
-                    viewport={'width': 1920, 'height': 1080}
-                )
-                logger.info("Playwright browser initialized successfully")
-            except Exception as e:
-                logger.error(f"Failed to initialize Playwright: {e}")
-                raise
-
-        return self._browser, self._context
-
-    def _fetch_page_with_playwright(self, url: str, wait_for_selector: Optional[str] = None, timeout: int = 30000) -> Optional[str]:
+    def _fetch_page_with_playwright_sync(self, url: str, wait_for_selector: Optional[str] = None, timeout: int = 30000) -> Optional[str]:
         """
-        Fetch HTML content using Playwright for JavaScript-rendered pages.
+        Fetch HTML content using Playwright (sync version for thread execution).
 
         Args:
             url: The URL to fetch
@@ -82,9 +61,21 @@ class JobScraper:
         Returns:
             HTML content or None if failed
         """
+        playwright = None
+        browser = None
         try:
-            browser, context = self._get_browser_context()
-            logger.info(f"Fetching {url} with Playwright")
+            logger.info(f"Fetching {url} with Playwright in thread")
+
+            # Create fresh playwright instance in this thread
+            playwright = sync_playwright().start()
+            browser = playwright.chromium.launch(
+                headless=True,
+                args=['--no-sandbox', '--disable-dev-shm-usage']
+            )
+            context = browser.new_context(
+                user_agent=self.user_agent,
+                viewport={'width': 1920, 'height': 1080}
+            )
 
             page = context.new_page()
 
@@ -97,7 +88,12 @@ class JobScraper:
 
             # Get the HTML content
             html = page.content()
+
+            # Cleanup
             page.close()
+            context.close()
+            browser.close()
+            playwright.stop()
 
             logger.info(f"Successfully fetched {url} with Playwright (page size: {len(html)} bytes)")
             return html
@@ -105,25 +101,55 @@ class JobScraper:
         except Exception as e:
             logger.error(f"Failed to fetch {url} with Playwright: {e}")
             return None
+        finally:
+            # Ensure cleanup
+            if browser:
+                try:
+                    browser.close()
+                except:
+                    pass
+            if playwright:
+                try:
+                    playwright.stop()
+                except:
+                    pass
+
+    def _fetch_page_with_playwright(self, url: str, wait_for_selector: Optional[str] = None, timeout: int = 30000) -> Optional[str]:
+        """
+        Fetch HTML content using Playwright for JavaScript-rendered pages.
+
+        This method runs Playwright in a separate thread to avoid async/sync conflicts.
+        """
+        # Check if we're in an async event loop
+        try:
+            asyncio.get_running_loop()
+            # We're in an async context, need to run in a thread
+            from threading import Thread
+            result = [None]
+            exception = [None]
+
+            def run_in_thread():
+                try:
+                    result[0] = self._fetch_page_with_playwright_sync(url, wait_for_selector, timeout)
+                except Exception as e:
+                    exception[0] = e
+
+            thread = Thread(target=run_in_thread)
+            thread.start()
+            thread.join(timeout=timeout/1000 + 10)
+
+            if exception[0]:
+                raise exception[0]
+            return result[0]
+
+        except RuntimeError:
+            # Not in an async context, run directly
+            return self._fetch_page_with_playwright_sync(url, wait_for_selector, timeout)
 
     def close(self):
         """Clean up resources."""
-        try:
-            if self._context:
-                self._context.close()
-                logger.debug("Playwright context closed")
-            if self._browser:
-                self._browser.close()
-                logger.debug("Playwright browser closed")
-            if self._playwright:
-                self._playwright.stop()
-                logger.info("Playwright stopped")
-        except Exception as e:
-            logger.error(f"Error closing Playwright: {e}")
-        finally:
-            self._context = None
-            self._browser = None
-            self._playwright = None
+        # No persistent resources to clean up anymore
+        pass
 
     def fetch_page(self, url: str, timeout: int = 30, use_playwright: Optional[bool] = None) -> Optional[str]:
         """
