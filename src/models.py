@@ -66,12 +66,12 @@ class CareerPage:
         data = {
             'id': self.id,
             'url': self.url,
-            'added_at': self.added_at,
+            'added_at': self.added_at.isoformat() if self.added_at else None,
             'added_by_user': self.added_by_user,
             'interval': self.interval,
             'status': self.status,
-            'last_check': self.last_check,
-            'last_success': self.last_success,
+            'last_check': self.last_check.isoformat() if self.last_check else None,
+            'last_success': self.last_success.isoformat() if self.last_success else None,
             'jobs_found_total': self.jobs_found_total,
             'error_count': self.error_count,
             'selectors': self.selectors.to_dict(),
@@ -89,15 +89,28 @@ class CareerPage:
         if 'use_selenium' in selectors_data:
             selectors_data['use_playwright'] = selectors_data.pop('use_selenium')
 
+        # Helper to parse datetime fields (handles both datetime objects and ISO strings)
+        def parse_datetime(value):
+            if value is None:
+                return None
+            if isinstance(value, datetime):
+                return value
+            if isinstance(value, str):
+                return datetime.fromisoformat(value)
+            # Handle Firestore DatetimeWithNanoseconds
+            if hasattr(value, 'isoformat'):
+                return datetime.fromisoformat(value.isoformat())
+            return value
+
         return cls(
             id=data['id'],
             url=data['url'],
-            added_at=data['added_at'],
+            added_at=parse_datetime(data['added_at']),
             added_by_user=data['added_by_user'],
             interval=data.get('interval', 300),
             status=data.get('status', PageStatus.ACTIVE.value),
-            last_check=data.get('last_check'),
-            last_success=data.get('last_success'),
+            last_check=parse_datetime(data.get('last_check')),
+            last_success=parse_datetime(data.get('last_success')),
             jobs_found_total=data.get('jobs_found_total', 0),
             error_count=data.get('error_count', 0),
             selectors=Selectors(**selectors_data),
@@ -119,7 +132,11 @@ class Job:
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""
-        return {k: v for k, v in asdict(self).items() if v is not None}
+        data = asdict(self)
+        # Convert datetime to ISO format string for JSON serialization
+        if isinstance(data.get('first_seen'), datetime):
+            data['first_seen'] = data['first_seen'].isoformat()
+        return {k: v for k, v in data.items() if v is not None}
 
     def get_hash(self) -> str:
         """Generate a unique hash for this job."""
