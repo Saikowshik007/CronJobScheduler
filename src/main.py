@@ -129,8 +129,8 @@ class JobScraperApp:
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
 
-            # Send notification asynchronously
-            loop.create_task(
+            # Run the notification coroutine and wait for it to complete
+            loop.run_until_complete(
                 self.telegram_handler.send_job_notification(
                     user_id=page.added_by_user,
                     page=page,
